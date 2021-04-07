@@ -9,17 +9,21 @@ Finally, if you are unsure how to start the project, we recommend you visit offi
 Team members
 -----------------
 
-1. Alice (alice@wpi.edu)
-2. Bob (bob@wpi.edu)
+1. Thomas Graham
+2. Lorenzo Lopez (lplopez@wpi.edu)
 
 Design Questions
 ------------------
 
 1. When implementing the `debug()` function, you will need to load the file system via the emulated disk and retrieve the information for superblock and inodes.
 1.1 How will you read the superblock?
+We read the superblock by calling wread(0, block.Data) and by using super we can get the magic number
 1.2 How will you traverse all the inodes?
+We traverse the inodes by reading at block 1 and iterating through them.
 1.3 How will you determine all the information related to an inode?
+We determine this info related to an inode by reading the fields the struct Inode has.
 1.4 How will you determine all the blocks related to an inode?
+We can determine that all blocks have been read when Inode.Direct has nothing to point to.
 
 Brief response please!
 
@@ -28,8 +32,11 @@ Brief response please!
 2. When implementing the `format()` function, you will need to write the superblock and clear the remaining blocks in the file system.
 
 2.1 What should happen if the the file system is already mounted?
+This system call should not succeed as the disk cannot be mounted.
 2.2 What information must be written into the superblock?
+The magic number, the number of blocks, the number of inode blocks and the number of inodes must be written.
 2.3 How would you clear all the remaining blocks?
+Set the Valid field of the inodes parsed to zero.
 
 Brief response please!
 
@@ -38,8 +45,11 @@ Brief response please!
 3. When implementing the `mount()` function, you will need to prepare a filesystem for use by reading the superblock and allocating the free block bitmap.
 
 3.1 What should happen if the file system is already mounted?
+This system call should not succeed as the disk cannot be mounted.
 3.2 What sanity checks must you perform before building up the free block bitmaps?
+The magic number must be correct, ie. the blocks on the disk must be the same as described by the superblock. The same can be said for corresponding inodes.
 3.3 How will you determine which blocks are free?
+We will know this by parsing the blocks and if any blocks are pointing to valid inodes.
 
 Brief response please!
 
