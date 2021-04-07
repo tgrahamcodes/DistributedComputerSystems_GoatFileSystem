@@ -11,15 +11,18 @@
 int FREE_MAP = 0;
 int DATA_MAP = 0;
 
+Block sBlock;
 Block block;
+unsigned int inodeCount;
 
 void debug()
-{
-	wread(0, block.Data);
+{	
+	// Start by reading the superblock
+	wread(0, sBlock.Data);
 
 	printf("SuperBlock:\n");
 
-	if (block.Super.MagicNumber == MAGIC_NUMBER)
+	if (sBlock.Super.MagicNumber == MAGIC_NUMBER)
 	{
 		printf("    magic number is valid\n");
 	}
@@ -29,44 +32,47 @@ void debug()
 	}
 	
 	// spacing is weird because tab set to 4 on my local, and 5 on server
-	printf("    %u blocks\n", block.Super.Blocks);
-	printf("    %u inode blocks\n", block.Super.InodeBlocks);
-	printf("    %u inodes\n", block.Super.Inodes);
+	printf("    %u blocks\n", sBlock.Super.Blocks);
+	printf("    %u inode blocks\n", sBlock.Super.InodeBlocks);
+	printf("    %u inodes\n", sBlock.Super.Inodes);
 	
-	unsigned int iNodeBlocks = block.Super.InodeBlocks;
+	unsigned int inodeCount = sBlock.Super.InodeBlocks;
+	int indirectInt = 0;
+	char *direct = NULL;
+	char *indirect = NULL;
 
-	wread(1, block.Data);
-
-	// loops through the inode blocks
-	//printf("\n");
-
-	int iCounter = 1;
-	for (unsigned int y=1; y<=iNodeBlocks; y++){
-	printf("Inode %u:\n", iCounter);
+	for (unsigned int y=0; y<inodeCount; y++){
+		wread(1+y, sBlock.Data);
 		// looping through individual inodes numbering 
 		// them by their pointer number, data in second column
-		for (unsigned int e=8; e<=128; e=e+1){
-			if ((block.Pointers[e] != 0) && (iCounter <= iNodeBlocks)){
-				printf("\n    size: %u bytes", block.Pointers[e+1]);
-				printf("\n    direct blocks: %u", block.Pointers[e+2]);
+		for (unsigned int e=0; e<INODES_PER_BLOCK; e++){
+			if (!sBlock.Inodes[e].Valid) {
+                continue;
+            }
+			for (unsigned int l=0; l < POINTERS_PER_INODE; l++){
+				if (sBlock.Inodes[e].Direct[l] != 0){
+					direct += ' ';
+					direct += sBlock.Inodes[e].Direct[l];
+				}
+			}
+			// indirect = sBlock.Inodes[y].Indirect;
+			if (indirectInt != 0){
+				wread(indirectInt, block.Data);
+				for (int j=0; j < POINTERS_PER_BLOCK; j++){
+					if (block.Pointers[j] != 0){
+						indirect += ' ';
+						indirect += block.Pointers[j];
+					}
+				}
+			}
+			printf("Inode %u:\n", e);
+			printf("    size: %u bytes\n", block.Inodes[y].Size);
+			printf("    direct blocks: %c\n", *direct);
+			if (indirect != NULL){
+				printf("    indirect blocks: %c\n", *indirect);
 			}
 		}
-		iCounter++;
 	}
-	printf("\n");
-	
-	// 1 inode block
-	// 128 inodes in that block POINTERS_PER_BLOCK(1024)
-	// 5 direct pointers per inode POINTERS_PER_INODE(5)
-	// block.Inodes->Valid = block.Pointers[8];
-	// block.Inodes->Size = block.Pointers[9];
-	// block.Inodes->Direct[POINTERS_PER_INODE] = block.Pointers[10];
-	// block.Inodes->Indirect = block.Pointers[11];
-	
-	// printf("\nInode %d:\n", block.Inodes->Valid);
-	// printf("    size: %d bytes", block.Inodes->Size);
-	// printf("\n    direct blocks: %d\n", block.Pointers[10]);
-	// printf("    indirect blocks: %d\n", block.Inodes->Indirect);
 }
 
 bool format()
@@ -76,7 +82,15 @@ bool format()
 
 int mount()
 {
-	// examine the disk for a filesystem
+	// examine the disk for a filesystem	
+	if (block.Super.MagicNumber != MAGIC_NUMBER){
+		wread(0, block.Data); // read superblock
+
+		return true;
+	}
+	else{
+		return false;
+	}
 	if (_disk->Blocks != 0)
 	{
 		// wread();
@@ -84,10 +98,6 @@ int mount()
 		// build free block bitmap
 		// prepare filesystem for use
 		return true;
-	}
-	else
-	{
-		return false;
 	}
 }
 
