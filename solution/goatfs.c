@@ -18,7 +18,8 @@ unsigned int inodeCount;
 void debug()
 {	
 	// Start by reading the superblock
-	wread(0, sBlock.Data);
+	//wread(0, sBlock.Data);
+	wread(0, _disk);
 
 	printf("SuperBlock:\n");
 
@@ -46,6 +47,7 @@ void debug()
 		// looping through individual inodes numbering 
 		// them by their pointer number, data in second column
 		for (unsigned int e=0; e<INODES_PER_BLOCK; e++){
+			printf("%u", block.Inodes[e].Size);
 			if (!sBlock.Inodes[e].Valid) {
                 continue;
             }
@@ -53,23 +55,30 @@ void debug()
 				if (sBlock.Inodes[e].Direct[l] != 0){
 					direct += ' ';
 					direct += sBlock.Inodes[e].Direct[l];
+					// printf("print2");
 				}
 			}
-			// indirect = sBlock.Inodes[y].Indirect;
+			indirectInt = sBlock.Inodes[y].Indirect;
 			if (indirectInt != 0){
 				wread(indirectInt, block.Data);
 				for (int j=0; j < POINTERS_PER_BLOCK; j++){
 					if (block.Pointers[j] != 0){
 						indirect += ' ';
 						indirect += block.Pointers[j];
+					// printf("debug1");
 					}
 				}
 			}
 			printf("Inode %u:\n", e);
-			printf("    size: %u bytes\n", block.Inodes[y].Size);
+			for (int s=0; s <= 200; s++){
+				if (block.Inodes[s].Size==1){
+					printf("%u", block.Inodes[s].Size);
+				}
+			}
+			printf("    size: %u bytes\n", block.Inodes[e].Size);
 			printf("    direct blocks: %c\n", *direct);
 			if (indirect != NULL){
-				printf("    indirect blocks: %c\n", *indirect);
+				printf("    indirect blocks: %c\n", indirectInt);
 			}
 		}
 	}
@@ -77,6 +86,24 @@ void debug()
 
 bool format()
 {
+	// Check if mounted
+    if (_disk->Mounts == 0) {
+        return false;
+    }
+    // Write superblock
+    // malloc(sBlock.Data,0,_disk->BLOCK_SIZE);
+	sBlock.Super.MagicNumber = MAGIC_NUMBER;
+    sBlock.Super.Blocks = block.Inodes->Siclze;
+    sBlock.Super.InodeBlocks = (size_t)(((float)_disk->Blocks*0.1)+0.5);
+    sBlock.Super.Inodes = INODES_PER_BLOCK*sBlock.Super.InodeBlocks;
+   	wwrite(0, sBlock.Data);
+
+    // Clear all other blocks
+    char clear[BUFSIZ] = {0};
+    for (size_t i=1; i<sBlock.Super.Blocks; i++) {
+        wwrite(i, clear);
+    }
+
 	return true;
 }
 
