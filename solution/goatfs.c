@@ -8,8 +8,8 @@
 #include "disk.h"
 #include "goatfs.h"
 
-int FREE_MAP = 0;
-int DATA_MAP = 0;
+char FREE_MAP[BLOCK_SIZE];
+char DATA_MAP[BLOCK_SIZE];
 
 Block sBlock;
 Block block;
@@ -90,21 +90,23 @@ void debug()
 	}
 }
 
+
+
 bool format()
 {
-	// Check if mounted
-    if (_disk->Mounts == 0) {
-        return false;
-    }
-    // Write superblock
-    // malloc(sBlock.Data,0,_disk->BLOCK_SIZE);
+	if (_disk->Mounts > 0){
+		return false;
+	}
+
+	// printf("File Descriptor: %u", _disk->FileDescriptor);
+    memset(sBlock.Data,0,BLOCK_SIZE);
 	sBlock.Super.MagicNumber = MAGIC_NUMBER;
-    sBlock.Super.Blocks = block.Inodes->Size;
+    sBlock.Super.Blocks = _disk->Blocks;
     sBlock.Super.InodeBlocks = (size_t)(((float)_disk->Blocks*0.1)+0.5);
     sBlock.Super.Inodes = INODES_PER_BLOCK*sBlock.Super.InodeBlocks;
    	wwrite(0, sBlock.Data);
 
-    // Clear all other blocks
+  
     char clear[BUFSIZ] = {0};
     for (size_t i=1; i<sBlock.Super.Blocks; i++) {
         wwrite(i, clear);
@@ -115,23 +117,64 @@ bool format()
 
 int mount()
 {
-	// examine the disk for a filesystem	
-	if (block.Super.MagicNumber != MAGIC_NUMBER){
-		wread(0, block.Data); // read superblock
+	Block new;
+	if (_disk->Mounts > 0){
+		return 1;
+	}
 
-		return true;
+	wread(0,sBlock.Data);
+
+	if (sBlock.Super.MagicNumber != MAGIC_NUMBER){
+		return 1;
 	}
-	else{
-		return false;
+
+	if (sBlock.Super.Blocks < 0){
+		return 1;
 	}
-	if (_disk->Blocks != 0)
-	{
-		// wread();
-		// read superblock
-		// build free block bitmap
-		// prepare filesystem for use
-		return true;
+
+	if (sBlock.Super.Inodes != (sBlock.Super.InodeBlocks * INODES_PER_BLOCK)){
+		return 1;
 	}
+	if (sBlock.Super.InodeBlocks != ceil(.1 * sBlock.Super.Blocks)) {
+        return 1;
+    } 
+
+	memset(FREE_MAP,0,BLOCK_SIZE);
+	FREE_MAP[0] = 0;
+	// printf("FREE_MAP = %u \n", (unsigned int)sizeof(FREE_MAP));
+	for (unsigned int i=1; i <= sBlock.Super.Blocks; i++){
+		FREE_MAP[i] = 1;
+	}
+
+	for (unsigned int j=0; j < sBlock.Super.InodeBlocks; j++){
+		FREE_MAP[j+1] = 0;
+	}
+	
+	for (unsigned int x=0; x < sBlock.Super.InodeBlocks; x++){
+		wread(x+1, new.Data);
+		
+		for (unsigned int n=0; n < INODES_PER_BLOCK; n++){
+			if(!new.Inodes[n].Valid){
+				continue;
+			}
+			unsigned int b = ceil(new.Inodes[n].Size/(double)BLOCK_SIZE);
+			
+			for (unsigned int e=0; e < POINTERS_PER_INODE && e < b; e++){
+				FREE_MAP[new.Inodes[n].Direct[e]] = 0;
+			}
+
+			if (b > POINTERS_PER_INODE){
+				Block ind;
+				wread(new.Inodes[n].Indirect, ind.Data);
+				FREE_MAP[new.Inodes[n].Indirect] = 0;
+				for (unsigned int l = 0; l < b - POINTERS_PER_INODE; l++){
+					FREE_MAP[ind.Pointers[l]] = 0;
+				}
+			}
+		}
+	}
+	_disk->Mounts++;
+	return 0;
 }
 
 ssize_t create()
