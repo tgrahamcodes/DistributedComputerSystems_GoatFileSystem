@@ -18,16 +18,13 @@ unsigned int inodeCount;
 void debug()
 {	
 	// Start by reading the superblock
-	//wread(0, sBlock.Data);
-	wread(0, _disk);
+	wread(0, sBlock.Data);
 
 	printf("SuperBlock:\n");
-
 	if (sBlock.Super.MagicNumber == MAGIC_NUMBER)
 	{
 		printf("    magic number is valid\n");
-	}
-	else
+	}else
 	{
 		printf("    magic number is invalid\n");
 	}
@@ -38,48 +35,57 @@ void debug()
 	printf("    %u inodes\n", sBlock.Super.Inodes);
 	
 	unsigned int inodeCount = sBlock.Super.InodeBlocks;
-	int indirectInt = 0;
-	char *direct = NULL;
-	char *indirect = NULL;
+	unsigned int indirectInt = 0;
+	char *direct;
+	char *indirect;
 
 	for (unsigned int y=0; y<inodeCount; y++){
 		wread(1+y, sBlock.Data);
 		// looping through individual inodes numbering 
 		// them by their pointer number, data in second column
 		for (unsigned int e=0; e<INODES_PER_BLOCK; e++){
-			printf("%u", block.Inodes[e].Size);
+			// printf("%u", block.Inodes[e].Size);
 			if (!sBlock.Inodes[e].Valid) {
                 continue;
             }
 			for (unsigned int l=0; l < POINTERS_PER_INODE; l++){
 				if (sBlock.Inodes[e].Direct[l] != 0){
-					direct += ' ';
+					direct = direct + ' ';
 					direct += sBlock.Inodes[e].Direct[l];
-					// printf("print2");
 				}
 			}
-			indirectInt = sBlock.Inodes[y].Indirect;
+			indirectInt = sBlock.Inodes[e].Indirect;
 			if (indirectInt != 0){
 				wread(indirectInt, block.Data);
-				for (int j=0; j < POINTERS_PER_BLOCK; j++){
+				for (unsigned int j=0; j < POINTERS_PER_BLOCK; j++){
 					if (block.Pointers[j] != 0){
 						indirect += ' ';
 						indirect += block.Pointers[j];
-					// printf("debug1");
 					}
 				}
 			}
 			printf("Inode %u:\n", e);
-			for (int s=0; s <= 200; s++){
-				if (block.Inodes[s].Size==1){
-					printf("%u", block.Inodes[s].Size);
+			printf("    size: %u bytes\n", sBlock.Inodes[e].Size);
+			if (sBlock.Inodes[e].Valid != 0){
+				printf("    direct blocks:");
+				for (unsigned int p=0; p < POINTERS_PER_INODE; p++){
+					if (sBlock.Inodes[e].Direct[p] != 0){
+						printf(" %u", sBlock.Inodes[e].Direct[p]);
+					}
+				}
+				for (unsigned int p=0; p <= sBlock.Inodes->Size; p++){
+					if (sBlock.Inodes[e].Indirect != 0){
+						printf("\n    indirect block: %u\n", indirectInt);
+						printf("    indirect data blocks:");
+						for (unsigned int m=0; m <= 300; m++){
+							if (block.Pointers[m] != 0){
+								printf(" %u", block.Pointers[m]);
+							}
+						}
+					} 
 				}
 			}
-			printf("    size: %u bytes\n", block.Inodes[e].Size);
-			printf("    direct blocks: %c\n", *direct);
-			if (indirect != NULL){
-				printf("    indirect blocks: %c\n", indirectInt);
-			}
+			printf("\n");
 		}
 	}
 }
@@ -93,7 +99,7 @@ bool format()
     // Write superblock
     // malloc(sBlock.Data,0,_disk->BLOCK_SIZE);
 	sBlock.Super.MagicNumber = MAGIC_NUMBER;
-    sBlock.Super.Blocks = block.Inodes->Siclze;
+    sBlock.Super.Blocks = block.Inodes->Size;
     sBlock.Super.InodeBlocks = (size_t)(((float)_disk->Blocks*0.1)+0.5);
     sBlock.Super.Inodes = INODES_PER_BLOCK*sBlock.Super.InodeBlocks;
    	wwrite(0, sBlock.Data);
