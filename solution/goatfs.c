@@ -179,27 +179,83 @@ int mount()
 
 ssize_t create()
 {
+	int tracker = -1;
 	Inode inode;
 	inode.Size = 0;
 
-	if (inode.Valid)
-	{
-		return true;
+	for(uint32_t i; i < iBlock; i++){
+		Block blockData;
+		wread(1 + i, blockData.Data);
+		for (uint32_t iNode = 0; iNode < INODES_PER_BLOCK; iNode++){
+			if(!blockData.Inodes[inode].Valid){
+				tracker = iNode + INODES_PER_BLOCK*i;
+				break;
+			}
+		}
+
+		if(tracker != -1){
+			break;
+		}	
 	}
-	else
-	{
-		return -1;
+
+	if(tracker == -1){
+		return -1
 	}
+	
+	inode.Valid = true;
+	for(unsigned int j = 0; j < POINTERS_PER_INODE; j++){
+		inode.Direct[j] = 0;
+	}
+	inode.Indirect = 0;
+	save_inode(tracker, &inode);
+	return tracker;
 }
 
 bool wremove(size_t inumber)
 {
-	return true;
+	Inode inode;
+
+    if (!load_inode(inumber, &inode)) {
+        return false;
+    }
+    if (inode.Valid == 0) {
+        return false;
+    }
+
+    for (unsigned int i = 0; i < POINTERS_PER_INODE; i++) {
+        if (inode.Direct[i] != 0) {
+            FREE_MAP[inode.Direct[i]] = 1;
+            inode.Direct[i] = 0;
+        }
+    }
+
+    if (inode.Indirect != 0) {
+        FREE_MAP[node.Indirect] = 1;
+        wread(inode.Indirect, block.Data);
+        for (unsigned int i = 0; i < POINTERS_PER_BLOCK; i++) {
+            if (b.Pointers[i] != 0) {
+                free_bitmap[b.Pointers[i]] = 1;
+            }
+        }
+    }
+    node.Indirect = 0;
+    node.Valid = 0;
+    node.Size = 0;
+    if (!save_inode(inumber, &inode)) {
+        return false;
+    };
+
+    return true;
 }
 
 ssize_t stat(size_t inumber)
 {
-	return 4;
+	Inode inode;
+    if (!load_inode(inumber,&inode) || !inode.Valid) {
+        return -1;
+    }
+
+    return inode.Size;
 }
 
 ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
@@ -210,4 +266,40 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
 ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset)
 {
 	return 4;
+}
+
+
+
+
+bool loadInode(size_t inumber, Inode *inode) {
+    size_t blockNum = 1 + (inumber / INODES_PER_BLOCK);
+    size_t offset = inumber % INODES_PER_BLOCK;
+
+    if (inumber >= block.Super.Inodes) {
+        return false;
+    }
+
+    Block block;
+    wread(blockNum, block.Data);
+
+    *node = block.Inodes[offset];
+
+    return true;
+}
+
+
+bool saveInode(size_t inumber, Inode *inode) {
+
+    size_t blockNum = 1 + inumber / INODES_PER_BLOCK;
+    size_t offset = inumber % INODES_PER_BLOCK;
+
+    if (inumber >= block.Super.Inodes) {
+        return false;
+    }
+
+    wread(blockNum, block.Data);
+    block.Inodes[offset] = *inode;
+    wwrite(blockNum, block.Data);
+
+    return true;
 }
