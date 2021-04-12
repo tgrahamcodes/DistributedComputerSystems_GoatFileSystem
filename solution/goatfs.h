@@ -31,10 +31,6 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset);
 ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset);
 //
 
-//helper functions
-extern bool load_inode(size_t inumber, Inode *inode);
-extern bool save_inode(size_t inumber, Inode *inode);
-
 struct _SuperBlock {		// Superblock structure
     unsigned int MagicNumber;	// File system magic number
     unsigned int Blocks;	// Number of blocks in file system
@@ -64,5 +60,9 @@ union _Block {
 typedef union _Block Block;
 
 DISK* _disk;    // disk handler
+
+//helper functions
+extern bool load_inode(size_t inumber, Inode *inode);
+extern bool save_inode(size_t inumber, Inode *inode);
 
 #endif

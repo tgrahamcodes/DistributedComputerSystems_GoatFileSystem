@@ -13,9 +13,7 @@ char DATA_MAP[BLOCK_SIZE];
 
 Block sBlock;
 Block block;
-Block blockData;
 unsigned int inodeCount;
-Inode inode;
 
 void debug()
 {	
@@ -38,8 +36,8 @@ void debug()
 	
 	unsigned int inodeCount = sBlock.Super.InodeBlocks;
 	unsigned int indirectInt = 0;
-	char *direct;
-	char *indirect;
+	char *direct = NULL;
+	char *indirect = NULL;
 
 	for (unsigned int y=0; y<inodeCount; y++){
 		wread(1+y, sBlock.Data);
@@ -52,7 +50,7 @@ void debug()
             }
 			for (unsigned int l=0; l < POINTERS_PER_INODE; l++){
 				if (sBlock.Inodes[e].Direct[l] != 0){
-					direct = direct + ' ';
+					direct += ' ';
 					direct += sBlock.Inodes[e].Direct[l];
 				}
 			}
@@ -182,12 +180,14 @@ int mount()
 ssize_t create()
 {
 	int tracker = -1;
+	Inode inode;
 	inode.Size = 0;
 
-	for(uint32_t i; i < iBlock; i++){
+	for(uint32_t i = 0; i < inodeCount; i++){
+		Block blockData;
 		wread(1 + i, blockData.Data);
 		for (uint32_t iNode = 0; iNode < INODES_PER_BLOCK; iNode++){
-			if(!blockData.Inodes[inode].Valid){
+			if(!blockData.Inodes[iNode].Valid){
 				tracker = iNode + INODES_PER_BLOCK*i;
 				break;
 			}
@@ -199,7 +199,7 @@ ssize_t create()
 	}
 
 	if(tracker == -1){
-		return -1
+		return -1;
 	}
 	
 	inode.Valid = true;
@@ -207,14 +207,15 @@ ssize_t create()
 		inode.Direct[j] = 0;
 	}
 	inode.Indirect = 0;
-	saveInode(tracker, &inode);
+	save_inode(tracker, &inode);
 	return tracker;
 }
 
 bool wremove(size_t inumber)
 {
+	Inode inode;
 
-    if (!loadInode(inumber, &inode)) {
+    if (!load_inode(inumber, &inode)) {
         return false;
     }
     if (inode.Valid == 0) {
@@ -229,18 +230,18 @@ bool wremove(size_t inumber)
     }
 
     if (inode.Indirect != 0) {
-        FREE_MAP[node.Indirect] = 1;
+        FREE_MAP[inode.Indirect] = 1;
         wread(inode.Indirect, block.Data);
         for (unsigned int i = 0; i < POINTERS_PER_BLOCK; i++) {
-            if (blockData.Pointers[i] != 0) {
-                FREE_MAP[blockData.Pointers[i]] = 1;
+            if (block.Pointers[i] != 0) {
+                FREE_MAP[block.Pointers[i]] = 1;
             }
         }
     }
-    node.Indirect = 0;
-    node.Valid = 0;
-    node.Size = 0;
-    if (!saveInode(inumber, &inode)) {
+   	inode.Indirect = 0;
+    inode.Valid = 0;
+    inode.Size = 0;
+    if (!save_inode(inumber, &inode)) {
         return false;
     };
 
@@ -249,7 +250,8 @@ bool wremove(size_t inumber)
 
 ssize_t stat(size_t inumber)
 {
-    if (!loadInode(inumber,&inode) || !inode.Valid) {
+	Inode inode;
+    if (!load_inode(inumber,&inode) || !inode.Valid) {
         return -1;
     }
 
@@ -276,8 +278,11 @@ bool loadInode(size_t inumber, Inode *inode) {
     if (inumber >= block.Super.Inodes) {
         return false;
     }
+
+    Block block;
     wread(blockNum, block.Data);
-    *node = block.Inodes[offset];
+
+    *inode = block.Inodes[offset];
 
     return true;
 }
@@ -291,6 +296,7 @@ bool saveInode(size_t inumber, Inode *inode) {
     if (inumber >= block.Super.Inodes) {
         return false;
     }
+
     wread(blockNum, block.Data);
     block.Inodes[offset] = *inode;
     wwrite(blockNum, block.Data);
