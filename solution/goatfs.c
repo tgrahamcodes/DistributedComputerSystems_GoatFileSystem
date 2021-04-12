@@ -13,7 +13,9 @@ char DATA_MAP[BLOCK_SIZE];
 
 Block sBlock;
 Block block;
+Block blockData;
 unsigned int inodeCount;
+Inode inode;
 
 void debug()
 {	
@@ -180,11 +182,9 @@ int mount()
 ssize_t create()
 {
 	int tracker = -1;
-	Inode inode;
 	inode.Size = 0;
 
 	for(uint32_t i; i < iBlock; i++){
-		Block blockData;
 		wread(1 + i, blockData.Data);
 		for (uint32_t iNode = 0; iNode < INODES_PER_BLOCK; iNode++){
 			if(!blockData.Inodes[inode].Valid){
@@ -207,15 +207,14 @@ ssize_t create()
 		inode.Direct[j] = 0;
 	}
 	inode.Indirect = 0;
-	save_inode(tracker, &inode);
+	saveInode(tracker, &inode);
 	return tracker;
 }
 
 bool wremove(size_t inumber)
 {
-	Inode inode;
 
-    if (!load_inode(inumber, &inode)) {
+    if (!loadInode(inumber, &inode)) {
         return false;
     }
     if (inode.Valid == 0) {
@@ -233,15 +232,15 @@ bool wremove(size_t inumber)
         FREE_MAP[node.Indirect] = 1;
         wread(inode.Indirect, block.Data);
         for (unsigned int i = 0; i < POINTERS_PER_BLOCK; i++) {
-            if (b.Pointers[i] != 0) {
-                free_bitmap[b.Pointers[i]] = 1;
+            if (blockData.Pointers[i] != 0) {
+                FREE_MAP[blockData.Pointers[i]] = 1;
             }
         }
     }
     node.Indirect = 0;
     node.Valid = 0;
     node.Size = 0;
-    if (!save_inode(inumber, &inode)) {
+    if (!saveInode(inumber, &inode)) {
         return false;
     };
 
@@ -250,8 +249,7 @@ bool wremove(size_t inumber)
 
 ssize_t stat(size_t inumber)
 {
-	Inode inode;
-    if (!load_inode(inumber,&inode) || !inode.Valid) {
+    if (!loadInode(inumber,&inode) || !inode.Valid) {
         return -1;
     }
 
@@ -278,10 +276,7 @@ bool loadInode(size_t inumber, Inode *inode) {
     if (inumber >= block.Super.Inodes) {
         return false;
     }
-
-    Block block;
     wread(blockNum, block.Data);
-
     *node = block.Inodes[offset];
 
     return true;
@@ -296,7 +291,6 @@ bool saveInode(size_t inumber, Inode *inode) {
     if (inumber >= block.Super.Inodes) {
         return false;
     }
-
     wread(blockNum, block.Data);
     block.Inodes[offset] = *inode;
     wwrite(blockNum, block.Data);
