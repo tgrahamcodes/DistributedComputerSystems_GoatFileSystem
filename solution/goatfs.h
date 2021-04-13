@@ -62,7 +62,7 @@ typedef union _Block Block;
 DISK* _disk;    // disk handler
 
 //helper functions
-extern bool load_inode(size_t inumber, Inode *inode);
-extern bool save_inode(size_t inumber, Inode *inode);
+extern bool loadInode(ssize_t inumber, Inode *inode);
+extern bool saveInode(ssize_t inumber, Inode *inode);
 
 #endif

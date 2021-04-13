@@ -13,7 +13,9 @@ char DATA_MAP[BLOCK_SIZE];
 
 Block sBlock;
 Block block;
+Block new;
 unsigned int inodeCount;
+unsigned int blockCount;
 
 void debug()
 {	
@@ -43,9 +45,10 @@ void debug()
 		wread(1+y, sBlock.Data);
 		// looping through individual inodes numbering 
 		// them by their pointer number, data in second column
-		for (unsigned int e=0; e<INODES_PER_BLOCK; e++){
+		for (unsigned int e=1; e<INODES_PER_BLOCK; e++){
 			// printf("%u", block.Inodes[e].Size);
 			if (!sBlock.Inodes[e].Valid) {
+				// printf("%u ", sBlock.Inodes[e].Valid);
                 continue;
             }
 			for (unsigned int l=0; l < POINTERS_PER_INODE; l++){
@@ -63,6 +66,7 @@ void debug()
 						indirect += block.Pointers[j];
 					}
 				}
+				// printf("%u ", sBlock.Inodes->Valid);
 			}
 			printf("Inode %u:\n", e);
 			printf("    size: %u bytes\n", sBlock.Inodes[e].Size);
@@ -90,8 +94,6 @@ void debug()
 	}
 }
 
-
-
 bool format()
 {
 	if (_disk->Mounts > 0){
@@ -117,40 +119,42 @@ bool format()
 
 int mount()
 {
-	Block new;
+	
 	if (_disk->Mounts > 0){
 		return 1;
 	}
+	
+	wread(0,new.Data);
 
-	wread(0,sBlock.Data);
-
-	if (sBlock.Super.MagicNumber != MAGIC_NUMBER){
+	if (new.Super.MagicNumber != MAGIC_NUMBER){
 		return 1;
 	}
 
-	if (sBlock.Super.Blocks < 0){
+	if (new.Super.Blocks < 0){
 		return 1;
 	}
 
-	if (sBlock.Super.Inodes != (sBlock.Super.InodeBlocks * INODES_PER_BLOCK)){
+	if (new.Super.Inodes != (new.Super.InodeBlocks * INODES_PER_BLOCK)){
 		return 1;
 	}
-	if (sBlock.Super.InodeBlocks != ceil(.1 * sBlock.Super.Blocks)) {
+	if (new.Super.InodeBlocks != ceil(.1 * new.Super.Blocks)) {
         return 1;
     } 
 
 	memset(FREE_MAP,0,BLOCK_SIZE);
 	FREE_MAP[0] = 0;
 	// printf("FREE_MAP = %u \n", (unsigned int)sizeof(FREE_MAP));
-	for (unsigned int i=1; i <= sBlock.Super.Blocks; i++){
+	for (unsigned int i=1; i <= new.Super.Blocks; i++){
 		FREE_MAP[i] = 1;
 	}
 
-	for (unsigned int j=0; j < sBlock.Super.InodeBlocks; j++){
+	for (unsigned int j=0; j < new.Super.InodeBlocks; j++){
 		FREE_MAP[j+1] = 0;
 	}
 	
-	for (unsigned int x=0; x < sBlock.Super.InodeBlocks; x++){
+	blockCount = new.Super.Blocks;
+
+	for (unsigned int x=0; x < new.Super.InodeBlocks; x++){
 		wread(x+1, new.Data);
 		
 		for (unsigned int n=0; n < INODES_PER_BLOCK; n++){
@@ -179,43 +183,56 @@ int mount()
 
 ssize_t create()
 {
-	int tracker = -1;
-	Inode inode;
-	inode.Size = 0;
+	int inumber = -1;
 
-	for(uint32_t i = 0; i < inodeCount; i++){
+	//First locate a free inode
+	uint32_t j = 1;
+	uint32_t i = 0;
+	while (j <= blockCount){
 		Block blockData;
-		wread(1 + i, blockData.Data);
-		for (uint32_t iNode = 0; iNode < INODES_PER_BLOCK; iNode++){
-			if(!blockData.Inodes[iNode].Valid){
-				tracker = iNode + INODES_PER_BLOCK*i;
+
+		// Then read information
+		wread(j, blockData.Data);
+		while (i < INODES_PER_BLOCK){
+			if(!blockData.Inodes[i].Valid){
+				inumber = i + INODES_PER_BLOCK*j;
 				break;
 			}
+			i++;
 		}
-
-		if(tracker != -1){
-			break;
-		}	
+		if (inumber != -1) {
+            break;
+        }
+		j++;
 	}
 
-	if(tracker == -1){
-		return -1;
-	}
-	
+	if (inumber == -1) {
+        return -1;
+    }
+
+
+	// Then save using saveInode function
+	Inode inode;
 	inode.Valid = true;
-	for(unsigned int j = 0; j < POINTERS_PER_INODE; j++){
-		inode.Direct[j] = 0;
+	inode.Size = 0;
+
+	for(unsigned int x = 0; x < POINTERS_PER_INODE; x++){
+		inode.Direct[x] = 0;
 	}
 	inode.Indirect = 0;
-	save_inode(tracker, &inode);
-	return tracker;
+
+	if(inumber == -1){
+		return -1;
+	}
+	saveInode(inumber, &inode);
+	return inumber;
 }
 
 bool wremove(size_t inumber)
 {
 	Inode inode;
 
-    if (!load_inode(inumber, &inode)) {
+    if (!loadInode(inumber, &inode)) {
         return false;
     }
     if (inode.Valid == 0) {
@@ -241,7 +258,7 @@ bool wremove(size_t inumber)
    	inode.Indirect = 0;
     inode.Valid = 0;
     inode.Size = 0;
-    if (!save_inode(inumber, &inode)) {
+    if (!saveInode(inumber, &inode)) {
         return false;
     };
 
@@ -251,7 +268,7 @@ bool wremove(size_t inumber)
 ssize_t stat(size_t inumber)
 {
 	Inode inode;
-    if (!load_inode(inumber,&inode) || !inode.Valid) {
+    if (!loadInode(inumber,&inode) || !inode.Valid) {
         return -1;
     }
 
@@ -268,10 +285,7 @@ ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset)
 	return 4;
 }
 
-
-
-
-bool loadInode(size_t inumber, Inode *inode) {
+bool loadInode(ssize_t inumber, Inode *inode) {
     size_t blockNum = 1 + (inumber / INODES_PER_BLOCK);
     size_t offset = inumber % INODES_PER_BLOCK;
 
@@ -287,8 +301,7 @@ bool loadInode(size_t inumber, Inode *inode) {
     return true;
 }
 
-
-bool saveInode(size_t inumber, Inode *inode) {
+bool saveInode(ssize_t inumber, Inode *inode) {
 
     size_t blockNum = 1 + inumber / INODES_PER_BLOCK;
     size_t offset = inumber % INODES_PER_BLOCK;
@@ -296,10 +309,10 @@ bool saveInode(size_t inumber, Inode *inode) {
     if (inumber >= block.Super.Inodes) {
         return false;
     }
-
-    wread(blockNum, block.Data);
-    block.Inodes[offset] = *inode;
-    wwrite(blockNum, block.Data);
+	Block b;
+    wread(blockNum, b.Data);
+    b.Inodes[offset] = *inode;
+    wwrite(blockNum, b.Data);
 
     return true;
 }
