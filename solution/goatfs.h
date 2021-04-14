@@ -64,5 +64,6 @@ DISK* _disk;    // disk handler
 //helper functions
 extern bool loadInode(ssize_t inumber, Inode *inode);
 extern bool saveInode(ssize_t inumber, Inode *inode);
+extern void initialize_inode(Inode *node);
 
 #endif
