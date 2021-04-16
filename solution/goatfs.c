@@ -31,7 +31,7 @@ void debug()
 		printf("    magic number is invalid\n");
 	}
 	
-	// spacing is weird because tab set to 4 on my local, and 5 on server
+	// spacing is weird because tab set to 3 on my local, and 5 on server
 	printf("    %u blocks\n", sBlock.Super.Blocks);
 	printf("    %u inode blocks\n", sBlock.Super.InodeBlocks);
 	printf("    %u inodes\n", sBlock.Super.Inodes);
@@ -119,26 +119,29 @@ bool format()
 
 int mount()
 {
-	
-	if (_disk->Mounts > 0){
-		return 1;
+	if (_disk->Mounts != 0){
+		return -1;
 	}
 	Block mountSb;
-	wread(0,mountSb.Data);
+	wread(0, mountSb.Data);
 
 	if (mountSb.Super.MagicNumber != MAGIC_NUMBER){
-		return 1;
+		return -1;
 	}
 
+    if (_disk->Blocks != mountSb.Super.Blocks){
+        return -1;
+    }
+
 	if (mountSb.Super.Blocks < 0){
-		return 1;
+		return -1;
 	}
 
 	if (mountSb.Super.Inodes != (mountSb.Super.InodeBlocks * INODES_PER_BLOCK)){
-		return 1;
+		return -1;
 	}
 	if (mountSb.Super.InodeBlocks != ceil(.1 * mountSb.Super.Blocks)) {
-        return 1;
+        return -1;
     } 
 
 	blockCount = mountSb.Super.Blocks;
@@ -158,9 +161,8 @@ int mount()
 		FREE_MAP[j+1] = 0;
 	}
 	
-
+    Block mountB;
 	for (unsigned int x=0; x < inodeBlocks; x++){
-		Block mountB;
 		wread(x+1, mountB.Data);
 		
 		for (unsigned int n=0; n < INODES_PER_BLOCK; n++){
@@ -183,6 +185,7 @@ int mount()
 			}
 		}
 	}
+    _disk->Mounts++;
 	return 0;
 }
 
@@ -240,7 +243,7 @@ bool wremove(size_t inumber)
             inode.Direct[i] = 0;
         }
     }
-
+    
     FREE_MAP[inode.Indirect] = 1;
 	Block iBlock;
     wread(inode.Indirect, iBlock.Data);
@@ -267,71 +270,102 @@ ssize_t stat(size_t inumber)
 
 ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
 {
-    Inode inode;
-    if (!loadInode(inumber, &inode) || offset > inode.Size) {
+    if (inumber >= inodeCount){
         return -1;
     }
-	printf("debug 0: ");
-	if (length < (inode.Size - offset)){
-		inode.Size = length;
-	}
+    Inode inode;
+    char str [4096];
+    bool i = loadInode(inumber, &inode);
+    if (!i) { 
+        return -1; 
+    }
 
-    uint32_t start_block = offset / BLOCK_SIZE;
+    if (inode.Size == offset) {
+        return -1; 
+    }
 
-	printf("debug 1: ");
+    unsigned int tmp = inode.Size - offset;
+    length = min(length, tmp);
+    unsigned int startBlock = offset / BLOCK_SIZE;
+    unsigned int startByte  = offset % BLOCK_SIZE;
     Block wfsB;
-	int ol = offset + length;
-    if ((ol / BLOCK_SIZE) > POINTERS_PER_INODE) {
-		if (inode.Indirect != 0) {
-            return -1;
+	unsigned int readIndex = length;
+    unsigned int dataIndex = -1;
+    while (startBlock < POINTERS_PER_INODE){
+        if (!inode.Direct[startBlock]){
+            startBlock++;
+            startByte = 0;
+            continue;
         }
-        wread(inode.Indirect, wfsB.Data);
+        wread(inode.Direct[startBlock], wfsB.Data);
+        unsigned int blockSizeVar = BLOCK_SIZE;
+        unsigned int dataSize = min(startByte + readIndex, blockSizeVar);
+        unsigned int incrementer = startByte;
+        unsigned int x = 0;
+        while (incrementer < dataSize && x < strlen(str)+1){
+            str[x] += wfsB.Data[incrementer];
+            dataIndex++;
+            incrementer++;
+            x++;
+        }
+        readIndex = readIndex - dataSize + startByte;
+        startByte = 0;
+        startBlock++;
+    }    
+    Block indirectBlock;
+    if (inode.Valid){
+        inode.Indirect = true;
     }
-	printf("debug 4: ");
-    size_t read = 0;
-    for (uint32_t block_num = start_block; read < length; block_num++) {
-        size_t block_to_read;
-        if (block_num < POINTERS_PER_INODE) {
-            block_to_read = inode.Direct[block_num];
-        } else {
-            block_to_read = wfsB.Pointers[block_num-POINTERS_PER_INODE];
+    if (readIndex && inode.Indirect){
+        wread(inode.Indirect, indirectBlock.Data);
+        startBlock = startBlock - POINTERS_PER_INODE;
+        while (startBlock < POINTERS_PER_BLOCK){
+            if (indirectBlock.Pointers[startBlock] == 0){
+                startBlock++;
+                startByte = 0;
+                continue;       
+            }
+            for (unsigned int i=0; i<sizeof(indirectBlock.Pointers); i++){
+                if (indirectBlock.Inodes->Valid == 0){
+                    continue;
+                }
+            }
+            wread(indirectBlock.Pointers[startBlock], wfsB.Data);
+            unsigned int blockSizeVar = BLOCK_SIZE;
+            unsigned int dataSize = min(startByte + readIndex, blockSizeVar);
+            unsigned int incrementer = startByte;
+            unsigned int y = 0;
+            while (incrementer < dataSize && y < strlen(str) + 1){
+                str[y] += wfsB.Data[incrementer];
+                dataIndex++;
+                incrementer++;
+                y++;
+            }
+            readIndex = readIndex - dataSize + startByte;
+            startByte = 0;
+            startBlock++; 
         }
-
-        if (block_to_read == 0) {
-            return -1;
-        }
-
-        Block b;
-        wread(block_to_read,b.Data);
-        size_t read_offset;
-        size_t read_length;
-
-        if (read == 0) {
-            read_offset = offset % BLOCK_SIZE;
-            read_length = BLOCK_SIZE - read_offset + length;
-        } else {
-            read_offset = 0;
-            read_length = BLOCK_SIZE - length-read;
-        }
-        memcpy(data + read, b.Data + read_offset, read_length);
-        read += read_length;
     }
-    return read;
+    memcpy(data, &str, strlen(str) +1);
+    return dataIndex;
 }
 
 ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset)
 {
 	Inode inode;
     if (!loadInode(inumber, &inode) || offset > inode.Size) {
+        // printf("debug 1: ");
         return -1;
     }
 
+    printf("debug 2: ");
+
     size_t MAX_FILE_SIZE = BLOCK_SIZE * (POINTERS_PER_INODE*POINTERS_PER_BLOCK);
 
-	if (length < (MAX_FILE_SIZE - offset)){
-		inode.Size = length;
-	}
+    length = min(length, MAX_FILE_SIZE - offset);
     
+    printf("debug 3: ");
+
     uint32_t start_block = offset / BLOCK_SIZE;
     Block indirect;
     bool read_indirect = false;
@@ -380,17 +414,10 @@ ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset)
         size_t write_length;
         if (written == 0) {
             write_offset = offset % BLOCK_SIZE;
-			if (write_length < (BLOCK_SIZE - write_offset)){
-				write_offset = write_length;
-			}
+            write_length = min(BLOCK_SIZE - write_offset, length);
         }else{
             write_offset = 0;
-			if (write_length > BLOCK_SIZE){
-				write_length = BLOCK_SIZE;
-			}
-			else if (write_length > (length - written)){
-				write_length = length - written;
-			}
+            write_length = min(BLOCK_SIZE-0, length-written);
         }
         char write_buffer[BLOCK_SIZE];
         if (write_length < BLOCK_SIZE) {
@@ -436,8 +463,11 @@ bool loadInode(ssize_t inumber, Inode *inode) {
     wread(blockNum, loadB.Data);
 
     *inode = loadB.Inodes[offset];
+    if (inode->Valid) {
+        return true;
+    }
 
-    return true;
+    return false;
 }
 
 bool saveInode(ssize_t inumber, Inode *inode) {
@@ -473,4 +503,12 @@ ssize_t freeBlock(){
     }
 
     return block;
+}
+
+int min(int n, int m){
+    return (n < m) ? m : n;
+}
+
+int max(int n, int m){
+    return (n > m) ? n : m;
 }

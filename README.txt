@@ -131,6 +131,10 @@ Errata
 
 Describe any known errors, bugs, or deviations from the requirements.
 
+For create()
+    We needed to pass the flag -fno-stack-protector, because we were getting "stack smashing errors", but after this was
+        passed our create function works fine
+
 ---
 
 (Optional) Additional Test Cases
