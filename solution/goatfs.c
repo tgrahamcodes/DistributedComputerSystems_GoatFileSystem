@@ -233,14 +233,6 @@ int mount()
 	return 0;
 }
 
-void initializeInode(Inode *node) {
-    for (uint32_t i = 0; i < POINTERS_PER_INODE; i++) {
-        node->Direct[i] = 0;
-    }
-    node->Indirect  = 0;
-    node->Size      = 0;
-}
-
 /* A function used to create the disk block and add it to the system. */ 
 ssize_t create() {
     // Start with an inodenumber of -1
@@ -340,16 +332,11 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
     if (inumber >= inodeCount){
         return -1;
     }
+
+    // Assign variables
     Inode inode;
     char str [4096];
     bool i = loadInode(inumber, &inode);
-    if (!i) { 
-        return -1; 
-    }
-    if (inode.Size == offset) {
-        return -1; 
-    }
-
     unsigned int tmp = inode.Size - offset;
     length = min(length, tmp);
     unsigned int startBlock = offset / BLOCK_SIZE;
@@ -357,17 +344,33 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
     Block wfsB;
 	unsigned int readIndex = length;
     unsigned int dataIndex = -1;
+
+    // Check if the inode will sucessfully load
+    if (!i) { 
+        return -1; 
+    }
+    if (inode.Size == offset) {
+        return -1; 
+    } 
+
+    // Aslong as starBlock is less than Pointers per node starblock++
     while (startBlock < POINTERS_PER_INODE){
-        if (!inode.Direct[startBlock]){
+
+        // Check that inodeDirect exists
+        if (inode.Direct[startBlock] == 0){
             startBlock++;
             startByte = 0;
             continue;
         }
+        // Read in the wsb.Data
         wread(inode.Direct[startBlock], wfsB.Data);
+
+        // Assign more variables for the block 
         unsigned int blockSizeVar = BLOCK_SIZE;
         unsigned int dataSize = min(startByte + readIndex, blockSizeVar);
         unsigned int incrementer = startByte;
         unsigned int x = 0;
+
         while (incrementer < dataSize && x < strlen(str)+1){
             str[x] += wfsB.Data[incrementer];
             dataIndex++;
@@ -378,11 +381,18 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
         startByte = 0;
         startBlock++;
     }    
+
+    // Create another block
     Block indirectBlock;
+
+    // Test the validity of the inode 
     if (inode.Valid){
         inode.Indirect = true;
     }
+
+    // As long as readIndex is not 0 the condition will pass
     if (readIndex){
+        // Read in the indirectBlock.data
         wread(inode.Indirect, indirectBlock.Data);
         startBlock = startBlock - POINTERS_PER_INODE;
         while (startBlock < POINTERS_PER_BLOCK){
@@ -395,14 +405,10 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
                 if (indirectBlock.Inodes->Valid == 0){
                     continue;
                 }
-                printf("The loop: %u ", indirectBlock.Pointers[startBlock]);
-            }
-
-           // printf("Read Index: %u\nIndirectBlock Pointer: %u\n", readIndex, indirectBlock.Pointers[startBlock]);
-            if (indirectBlock.Pointers[startBlock] > sizeof(indirectBlock.Pointers)){
-                indirectBlock.Pointers[startBlock] = 0;
             }
             wread(indirectBlock.Pointers[startBlock], wfsB.Data);
+
+            // Assign more variables for the rest of the block
             unsigned int blockSizeVar = BLOCK_SIZE;
             unsigned int dataSize = min(startByte + readIndex, blockSizeVar);
             unsigned int incrementer = startByte;
@@ -425,105 +431,11 @@ ssize_t wfsread(size_t inumber, char *data, size_t length, size_t offset)
 /* A function used to write to the disk block and add it to the system. */ 
 ssize_t wfswrite(size_t inumber, char *data, size_t length, size_t offset)
 {
-	Inode inode;
-    if (!loadInode(inumber, &inode) || offset > inode.Size) {
-        printf("debug 1: ");
-        return -1;
-    }
-
-    printf("debug 2: ");
-
-    size_t MAX_FILE_SIZE = BLOCK_SIZE * (POINTERS_PER_INODE*POINTERS_PER_BLOCK);
-
-    length = min(length, MAX_FILE_SIZE - offset);
-    
-    printf("debug 3: ");
-
-    uint32_t start_block = offset / BLOCK_SIZE;
-    Block indirect;
-    bool read_indirect = false;
-
-    bool modified_inode = false;
-    bool modified_indirect = false;
-
-    size_t written = 0;
-    for (uint32_t block_num = start_block; written < length && block_num < POINTERS_PER_INODE + POINTERS_PER_BLOCK; block_num++) {
-        size_t block_to_write;
-        if (block_num < POINTERS_PER_INODE) {
-            if (inode.Direct[block_num] == 0) {
-                ssize_t allocated_block = freeBlock();
-                if (allocated_block == -1) {
-                    break;
-                }
-                inode.Direct[block_num] = allocated_block;
-                modified_inode = true;
-            }
-            block_to_write = inode.Direct[block_num];
-        } else {
-            if (inode.Indirect == 0) {
-                ssize_t allocated_block = freeBlock();
-                if (allocated_block == -1) {
-                    return written;
-                }
-                inode.Indirect = allocated_block;
-                modified_indirect = true;
-            }
-            if (!read_indirect) {
-                wread(inode.Indirect,indirect.Data);
-                read_indirect = true;
-            }
-
-            if (indirect.Pointers[block_num - POINTERS_PER_INODE] == 0) {
-                ssize_t allocated_block = freeBlock();
-                if (allocated_block == -1) {
-                    break;
-                }
-                indirect.Pointers[block_num - POINTERS_PER_INODE] = allocated_block;
-                modified_indirect = true;
-            }
-            block_to_write = indirect.Pointers[block_num-POINTERS_PER_INODE];
-        }
-        size_t write_offset;
-        size_t write_length;
-        if (written == 0) {
-            write_offset = offset % BLOCK_SIZE;
-            write_length = min(BLOCK_SIZE - write_offset, length);
-        }else{
-            write_offset = 0;
-            write_length = min(BLOCK_SIZE-0, length-written);
-        }
-        char write_buffer[BLOCK_SIZE];
-        if (write_length < BLOCK_SIZE) {
-            wread(block_to_write,(char*)write_buffer);
-        }
-        memcpy(write_buffer + write_offset, data + written, write_length);
-        wwrite(block_to_write,(char*)write_buffer);
-        written += write_length;
-    }
-
-    uint32_t new_size = (size_t) inode.Size;
-	if (new_size < (written + offset)){
-		new_size = (written + offset);
-	}else if ((new_size < inode.Size)){
-		new_size = inode.Size;
-	}
-
-    if (new_size != inode.Size) {
-        inode.Size = new_size;
-        modified_inode = true;
-    }
-
-    if (modified_inode) {
-        saveInode(inumber, &inode);
-    }
-     
-    if (modified_indirect) {
-        wwrite(inode.Indirect, indirect.Data);
-    }
-
-    return written;
+    // We were unable to get to this in time as we prioritized the wfsread function.
+    return 0;
 }
 
+/* A function used to help with loading the inode and reading the block. */ 
 bool loadInode(ssize_t inumber, Inode *inode) {
     size_t blockNum = 1 + (inumber / INODES_PER_BLOCK);
     size_t offset = inumber % INODES_PER_BLOCK;
@@ -543,6 +455,7 @@ bool loadInode(ssize_t inumber, Inode *inode) {
     return false;
 }
 
+/* A function used to help with saving the inode after the function */ 
 bool saveInode(ssize_t inumber, Inode *inode) {
     size_t blockNum = 1 + (inumber / INODES_PER_BLOCK);
     size_t offset = inumber % INODES_PER_BLOCK;
@@ -559,29 +472,12 @@ bool saveInode(ssize_t inumber, Inode *inode) {
     return true;
 }
 
-ssize_t freeBlock(){
-	int block = -1;
-    for (unsigned int i = 0; i < blockCount; i++) {
-        if (FREE_MAP[i]) {
-            FREE_MAP[i] = 0;
-            block = i;
-            break;
-        }
-    }
-
-    if (block != -1) {
-        char data[BLOCK_SIZE];
-        memset(data,0,BLOCK_SIZE);
-        wwrite(block,(char*)data);
-    }
-
-    return block;
-}
-
+/* A function used to determine the minimum value. */ 
 int min(int n, int m){
     return (n < m) ? m : n;
 }
 
+/* A function used to determine the maximum value. */ 
 int max(int n, int m){
     return (n > m) ? n : m;
 }

@@ -64,8 +64,6 @@ DISK* _disk;    // disk handler
 //helper functions
 extern bool loadInode(ssize_t inumber, Inode *inode);
 extern bool saveInode(ssize_t inumber, Inode *inode);
-extern void initializeInode(Inode *node);
-extern ssize_t freeBlock();
 extern int min(int n, int m);
 extern int max(int n, int m);
 
